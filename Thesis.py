@@ -271,7 +271,7 @@ states = 6
 farad = 96485
 z = 2
 uti = 0.8
-stor_cap = 1
+stor_cap = 6
 groups = 1
 Q_imb = error_re
 
@@ -287,7 +287,7 @@ j_ch_c = 0.075
 j_nom_c = j_max_c * uti
 P_nom_c = -0.801429 + 15.5039 * j_nom_c
 Ndot_nom_c = nr_elec_c * nr_cells_c * j_nom_c * area_c / (z * farad)
-T_min_c, T_max_c = 87.5, 87.5
+T_min_c, T_max_c = 85, 90
 w_min_c, w_max_c = pwlinear_out_HW1_y2w(T_min_c), pwlinear_out_HW1_y2w(T_max_c)
 T_in_min, T_in_max = 70, 80
 stor_max_c = Ndot_nom_c * 3600 * stor_cap
@@ -304,6 +304,7 @@ j_min_h, j_max_h = 1, 1.6
 j_ch_h = 0.3
 j_nom_h = j_max_h * uti
 P_nom_h = -0.585551 + 5.40324 *j_nom_h
+Q_nom_h = nr_elec_h * P_nom_h * 900 / 3600
 Ndot_nom_h = nr_elec_h * nr_cells_h * nr_units_h * j_nom_h * area_h / (z * farad)
 Qhcool_min, Qhcool_max = pwlinear_in_HW2_H2_u2h(0),pwlinear_in_HW2_H2_u2h(2)
 T_min_h, T_max_h = 57.5+273.15, 57.5+273.15
@@ -344,10 +345,15 @@ output_h = ['T_op', 'S_H2','i_dens_a']
 
 # Initial conditions FMU 
 
-T0_h = 273.15+57.5
+T0_h = [273.15+57.5 for g in range(groups_h)]
 
 # Initial states HW model 1
-x0_h = [-1314.502205480787, -1314.42682132694, -161.79160199074838, -1681.0979277342738, -1674.9481703798529, -207.0932507073316]
+x0_h = [[-1314.502205480787, 
+         -1314.42682132694, 
+         -161.79160199074838, 
+         -1681.0979277342738, 
+         -1674.9481703798529, 
+         -207.0932507073316] for g in range(groups_h)] 
 
 # PWlinear INPUT breakpoints - P vs T
 x_pw_in_h = [0,6.275700648444316,9]
@@ -364,13 +370,13 @@ j_plant_c = []
 stor_model_c = []
 stor_plant_c = []
 
-T_mod_h = []
-T_plant_h = []
-P_h = []
+T_mod_h = [[] for g in range(groups_h)]
+T_plant_h = [[] for g in range(groups_h)]
+P_h = [[] for g in range(groups_h)]
 P_agg_h = []
-Q_cool = []
-j_mod_h = []
-j_plant_h = []
+Q_cool = [[] for g in range(groups_h)]
+j_mod_h = [[] for g in range(groups_h)]
+j_plant_h = [[] for g in range(groups_h)]
 stor_model_h = []
 stor_plant_h = []
 
@@ -379,12 +385,12 @@ Q_res_imb = []
 Q_min = []
 Q_plus = []
 Q_slack = []
-t_sim = []
+t_sim = [] 
 
 for i, imb in enumerate(Q_imb): 
     if i == 100: 
         break
-    
+
     m = ConcreteModel()
      
     # Variables
@@ -392,7 +398,7 @@ for i, imb in enumerate(Q_imb):
     m.time_plus1 = Set(initialize=range(Time+1))
     m.states = Set(initialize=range(states))
     
-    m.gr_c = Set(initialize=range(groups_c))
+    m.g_c = Set(initialize=range(groups_c))
     m.x_c = Var(m.time_plus1, m.states, within=Reals)
     m.P_c = Var(m.time, within=NonNegativeReals, bounds=(3.5,8.5))
     m.Q_dr_c = Var(m.time, within=Reals)
@@ -404,16 +410,17 @@ for i, imb in enumerate(Q_imb):
     m.j_c = Var(m.time, within=Reals)
     m.N_dot_c = Var(m.time, within=Reals)
     
-    m.gr_h = Set(initialize=range(groups_h))
-    m.x_h = Var(m.time_plus1, m.states, within=Reals)
-    m.P_h = Var(m.time, within=NonNegativeReals, bounds=(3.5,8.5))
+    m.g_h = Set(initialize=range(groups_h))
+    m.x_h = Var(m.time_plus1, m.g_h, m.states, within=Reals)
+    m.P_h = Var(m.time, m.g_h, within=NonNegativeReals, bounds=(3.5,8.5))
     m.Q_dr_h = Var(m.time, within=Reals)
-    m.P_h_h = Var(m.time, within=Reals)
-    m.Qcool_h = Var(m.time, within=Reals)
+    m.Q_agg_h = Var(m.time, within=Reals)
+    m.P_h_h = Var(m.time, m.g_h, within=Reals)
+    m.Qcool_h = Var(m.time, m.g_h, within=Reals)
     m.stor_h = Var(m.time_plus1, within=NonNegativeReals)
     m.stor_norm_h = Var(m.time_plus1, within=NonNegativeReals)
-    m.T_w_h = Var(m.time_plus1, within=Reals)
-    m.j_h = Var(m.time, within=Reals)
+    m.T_w_h = Var(m.time_plus1, m.g_h, within=Reals)
+    m.j_h = Var(m.time, m.g_h, within=Reals)
     m.N_dot_h = Var(m.time, within=Reals)    
     
     m.Q_min = Var(m.time, within=NegativeReals)
@@ -433,29 +440,27 @@ for i, imb in enumerate(Q_imb):
     m.cons = ConstraintList()
     [m.cons.add(m.x_c[0,s] == x0_c[s]) for s in m.states]
     m.cons.add(m.stor_c[0] == stor_init_c)
-    [m.cons.add(m.x_h[0,s] == x0_h[s]) for s in m.states]
+    [m.cons.add(m.x_h[0,g,s] == x0_h[g][s]) for s in m.states for g in m.g_h]
     m.cons.add(m.stor_h[0] == stor_init_h)
     if i > 0:
         m.cons.add(expr=(-j_ch_c, j_plant_c[-1] - m.j_c[0], j_ch_c))
-        m.cons.add(expr=(-j_ch_h, j_plant_h[-1] - m.j_h[0], j_ch_h))
+        [m.cons.add(expr=(-j_ch_h, j_plant_h[g][-1] - m.j_h[0,g], j_ch_h)) for g in m.g_h]
 
     def x_temp_c(m, t, s):
         return m.x_c[t+1,s] == sum(A_c[s,c]*m.x_c[t,c] for c in m.states) \
                                 + B_c[s,0] * m.P_h_c[t] + B_c[s,1]* m.T_in[t] 
-    
     m.cons_x_temp_c = Constraint(m.time, m.states, rule=x_temp_c)
     
-    def x_temp_h(m, t, s):
-        return m.x_h[t+1,s] == sum(A_h[s,c]*m.x_h[t,c] for c in m.states) \
-                                + B_h[s,0] * m.P_h_h[t] + B_h[s,1]*m.Qcool_h[t] 
-    
-    m.cons_x_temp_h = Constraint(m.time, m.states, rule=x_temp_h)
+    def x_temp_h(m, t, g, s):
+        return m.x_h[t+1,g,s] == sum(A_h[s,c]*m.x_h[t,g,c] for c in m.states) \
+                                + B_h[s,0] * m.P_h_h[t,g] + B_h[s,1]*m.Qcool_h[t,g] 
+    m.cons_x_temp_h = Constraint(m.time, m.g_h, m.states, rule=x_temp_h)
     
     m.con_HW1 = Piecewise(m.time, m.P_h_c, m.P_c, pw_pts = x_pw_in_c, pw_constr_type = 'EQ', f_rule = y_pw_in_c, pw_repn="SOS2")
-    m.con_HW2 = Piecewise(m.time, m.P_h_h, m.P_h, pw_pts = x_pw_in_h, pw_constr_type = 'EQ', f_rule = y_pw_in_h, pw_repn="SOS2")
+    m.con_HW2 = Piecewise(m.time, m.g_h, m.P_h_h, m.P_h, pw_pts=x_pw_in_h, pw_constr_type = 'EQ', f_rule = y_pw_in_h, pw_repn="SOS2")
     for t in m.time:
         m.cons.add(expr=(T_in_min,m.T_in[t],T_in_max))
-        m.cons.add(expr=(Qhcool_max,m.Qcool_h[t],Qhcool_min))
+        [m.cons.add(expr=(Qhcool_max,m.Qcool_h[t,g],Qhcool_min)) for g in m.g_h]
         m.cons.add(m.Q_res_imb[t] <= abs(Q_imb[i+t])+m.Q_slack[t])
         m.cons.add(-abs(Q_imb[i+t])-m.Q_slack[t] <= m.Q_res_imb[t])
         m.cons.add(Q_imb[i+t] == m.Q_res_imb[t] + m.Q_dr_c[t] + m.Q_dr_h[t])
@@ -463,24 +468,26 @@ for i, imb in enumerate(Q_imb):
 #        m.cons.add(-abs(Q_imb[i+t])-m.Q_slack[t] <= m.Q_min[t])
 #        m.cons.add(Q_imb[i+t] == m.Q_plus[t] - m.Q_min[t] + m.Q_dr_c[t] + m.Q_dr_h[t])
         m.cons.add(m.Q_dr_c[t] == nr_elec_c * (P_nom_c - m.P_c[t]) * 900 / 3600 )
-        m.cons.add(m.Q_dr_h[t] == nr_elec_h * (P_nom_h - m.P_h[t]) * 900 / 3600 )
+        m.cons.add(m.Q_agg_h[t] == sum(nr_elec_h / groups_h * m.P_h[t,g] * 900 / 3600 for g in m.g_h))
+        m.cons.add(m.Q_dr_h[t] == Q_nom_h - m.Q_agg_h[t])
+        
    #     m.cons.add(m.P_h_c[t] == a_c*m.P_c[t] + b_c)
    #     m.cons.add(m.P_h_h[t] == a_h*m.P_h[t] + b_h)
         m.cons.add(m.P_c[t] == 15.5039 * m.j_c[t] - 0.801429)
-        m.cons.add(m.P_h[t] == 5.40324  * m.j_h[t] - 0.585551)  
+        [m.cons.add(m.P_h[t,g] == 5.40324  * m.j_h[t,g] - 0.585551) for g in m.g_h]
         m.cons.add(expr=(j_min_c, m.j_c[t], j_max_c))
-        m.cons.add(expr=(j_min_h, m.j_h[t], j_max_h))
+        [m.cons.add(expr=(j_min_h, m.j_h[t,g], j_max_h)) for g in m.g_h]
         m.cons.add(m.N_dot_c[t] == nr_elec_c*nr_cells_c*area_c*m.j_c[t]/(z*farad))
-        m.cons.add(m.N_dot_h[t] == nr_units_h*nr_elec_h*nr_cells_h*area_h*m.j_h[t]/(z*farad))
+        m.cons.add(m.N_dot_h[t] == sum(nr_units_h*nr_elec_h/groups_h*nr_cells_h*area_h*m.j_h[t,g]/(z*farad) for g in m.g_h))
         m.cons.add(m.stor_c[t+1] == m.stor_c[t] + m.N_dot_c[t]*900 - Ndot_nom_c*900)
         m.cons.add(m.stor_h[t+1] == m.stor_h[t] + m.N_dot_h[t]*900 - Ndot_nom_h*900)
         if t > 0:
             m.cons.add(expr=(-j_ch_c, m.j_c[t-1] - m.j_c[t], j_ch_c))
-            m.cons.add(expr=(-j_ch_h, m.j_h[t-1] - m.j_h[t], j_ch_h))
+            [m.cons.add(expr=(-j_ch_h, m.j_h[t-1,g] - m.j_h[t,g], j_ch_h)) for g in m.g_h]
     
     for t in m.time_plus1:
         m.cons.add(m.T_w_c[t] == sum(C_c[0,c]*m.x_c[t,c] for c in m.states))
-        m.cons.add(m.T_w_h[t] == sum(C_h[0,c]*m.x_h[t,c] for c in m.states))
+        [m.cons.add(m.T_w_h[t,g] == sum(C_h[0,c]*m.x_h[t,g,c] for c in m.states)) for g in m.g_h]
         m.cons.add(m.stor_norm_c[t] == m.stor_c[t]/stor_max_c)
         m.cons.add(m.stor_norm_h[t] == m.stor_h[t]/stor_max_h)
         m.cons.add(m.stor_delta[t] == m.stor_norm_c[t] - m.stor_norm_h[t])
@@ -488,16 +495,17 @@ for i, imb in enumerate(Q_imb):
             m.cons.add(expr=(0.2, m.stor_norm_c[t], 0.8))
             m.cons.add(expr=(0.2, m.stor_norm_h[t], 0.8))
             m.cons.add(expr=(w_min_c, m.T_w_c[t], w_max_c)) 
-            m.cons.add(expr=(w_min_h, m.T_w_h[t], w_max_h)) 
+            [m.cons.add(expr=(w_min_h, m.T_w_h[t,g], w_max_h)) for g in m.g_h] 
 
     solver = SolverFactory('gurobi', solver_io='python')
     
-    t1 = time.perf_counter()
+    t1 = time.perf_counter()    
     solver.solve(m) 
     print(time.perf_counter()-t1)
 
     # Get inputs P,T_in & simulate FMU
-    u_P_c,u_Ph_c,u_T_in = m.P_c[0].value, m.P_h_c[0].value, m.T_in[0].value       
+    u_P_c,u_Ph_c,u_T_in = m.P_c[0].value, m.P_h_c[0].value, m.T_in[0].value    
+
     t1 = time.perf_counter()
     input_c = np.array([(0.0, u_P_c, u_T_in, T0_c, NaCl,NaOH,H2O_ano,H2O_cat,j_nom_c)], dtype = dtype_c)
     results_c = simulate_fmu(unzipdir_c,model_description=mod_descr_c, start_time=0,output_interval=50, stop_time=900, step_size=1, apply_default_start_values= True, input = input_c, output=output_c) 
@@ -515,21 +523,6 @@ for i, imb in enumerate(Q_imb):
     T0_mod_c = pwlinear_out_HW1_w2y(w0_mod_c)
     
     # Get inputs P,T_in & simulate FMU
-    u_P_h,u_Ph_h,u_Q_cool = m.P_h[0].value, m.P_h_h[0].value, pwlinear_in_HW2_H2_h2u(m.Qcool_h[0].value)       
-    
-    input_h = np.array([(0.0, u_P_h, u_Q_cool, T0_h)], dtype = dtype_h)
-    results_h = simulate_fmu(unzipdir_h,model_description=mod_descr_h, start_time=0,output_interval=50, stop_time=900, step_size=1, apply_default_start_values= True, input = input_h, output=output_h)
-    
-    # State estimation CA electrolysis
-    x_h = np.matrix([m.x_h[0,s].value for s in m.states]).T
-    u_input_h = np.matrix([u_Ph_h, m.Qcool_h[0].value]).T
-    w0_mod_h = m.T_w_h[0].value
-    w0_plant_h = pwlinear_out_HW1_H2_y2w(T0_h)
-    error = w0_plant_h - w0_mod_h
-    x_new_h = A_h*x_h + B_h*u_input_h +L_h*error
-    x0_h = x_new_h.T.tolist()[0]
-   # x0_c = [m.x_c[1,s].value for s in m.states]
-    T0_mod_h = pwlinear_out_HW1_H2_w2y(w0_mod_h)
     
     t_sim +=        [i]
     T_mod_c +=      [T0_mod_c]
@@ -542,34 +535,50 @@ for i, imb in enumerate(Q_imb):
     stor_model_c += [m.stor_norm_c[0].value]
     stor_plant_c == [m.stor_norm_c[0].value]
     
-    T_mod_h +=      [T0_mod_h] 
-    T_plant_h +=    [T0_h]
-    Q_cool +=       [u_Q_cool]
-    P_h +=          [m.P_h[0].value]
-    P_agg_h +=      [m.P_c[0].value*nr_elec_c]
-    j_mod_h +=      [m.j_h[0].value]
-    j_plant_h +=    [results_h['i_dens_a'][0]/10000]
     stor_model_h += [m.stor_norm_h[0].value]
     stor_plant_h += [m.stor_norm_h[0].value]
+    P_agg_h +=      [m.Q_agg_h[0].value*3600/900]
     
+    T0_c = results_c['T'][-1]
+    NaCl = results_c['n_moles_ano_cl'][-1]
+    NaOH = results_c['n_moles_cat_oh'][-1]
+    H2O_ano = results_c['n_moles_ano_h2o'][-1]
+    H2O_cat = results_c['n_moles_cat_h2o'][-1]
+    stor_init_c = stor_init_c + results_c['S'][-1]*nr_elec_c - Ndot_nom_c*900
+
     obj +=          [m.obj.expr()]
     Q_res_imb +=    [m.Q_res_imb[0].value]    
     Q_min +=        [m.Q_min[0].value]  
     Q_plus +=       [m.Q_plus[0].value] 
     Q_slack +=      [m.Q_slack[0].value]
 
-    T0_c = results_c['T'][-1]
-    NaCl = results_c['n_moles_ano_cl'][-1]
-    NaOH = results_c['n_moles_cat_oh'][-1]
-    H2O_ano = results_c['n_moles_ano_h2o'][-1]
-    H2O_cat = results_c['n_moles_cat_h2o'][-1]
-    stor_init_c = stor_init_c + 24*results_c['S'][-1]-Ndot_nom_c*900
+    for g in m.g_h:
+        u_P_h,u_Ph_h,u_Q_cool = m.P_h[0,g].value, m.P_h_h[0,g].value, pwlinear_in_HW2_H2_h2u(m.Qcool_h[0,g].value)       
+        input_h = np.array([(0.0, u_P_h, u_Q_cool, T0_h[g])], dtype = dtype_h)
+        results_h = simulate_fmu(unzipdir_h,model_description=mod_descr_h, start_time=0,output_interval=50, stop_time=900, step_size=1, apply_default_start_values= True, input = input_h, output=output_h)
 
-    T0_h = results_h['T_op'][-1]
-    stor_init_h = stor_init_h + results_h['S_H2'][-1]*24 - Ndot_nom_h*900
-    
+        # State estimation CA electrolysis
+        x_h = np.matrix([m.x_h[0,g,s].value for s in m.states]).T
+        u_input_h = np.matrix([u_Ph_h, m.Qcool_h[0,g].value]).T
+        w0_mod_h = m.T_w_h[0,g].value
+        w0_plant_h = pwlinear_out_HW1_H2_y2w(T0_h[g])
+        error = w0_plant_h - w0_mod_h
+        x_new_h = A_h*x_h + B_h*u_input_h +L_h*error
+        x0_h[g] = x_new_h.T.tolist()[0]
+        T0_mod_h = pwlinear_out_HW1_H2_w2y(w0_mod_h)
+        
+        T_mod_h[g] +=      [T0_mod_h] 
+        T_plant_h[g] +=    [T0_h[g]]
+        Q_cool[g] +=       [u_Q_cool]
+        P_h[g] +=          [m.P_h[0,g].value]
+        j_mod_h[g] +=      [m.j_h[0,g].value]
+        j_plant_h[g] +=    [results_h['i_dens_a'][0]/10000]
+              
+        T0_h[g] = results_h['T_op'][-1]
+        stor_init_h = stor_init_h + results_h['S_H2'][-1]*nr_elec_h/groups_h - Ndot_nom_h*900/groups_h
+
 #%%
-plt.step(t_sim,P_h)
+plt.step(t_sim,P_h[0])
 plt.step(t_sim,P_c)
 plt.show()
 
@@ -590,3 +599,7 @@ plt.plot(T_plant_h)
 plt.show()
 
 plt.step(t_sim, Q_imb[:len(Q_res_imb)])
+#%%
+
+x = np.dot(A_h,np.array([x_h,x_h])) + np.dot(B_h,np.array([u_input_h,u_input_h])) +L_h*[error,error]
+print(m.Q_res_imb[0].extract_values())
